@@ -24,7 +24,7 @@ The API follows a **clean layered architecture** with proper separation of conce
 | **Entity Framework Core 10** | ORM for database operations |
 | **SQL Server (SQLEXPRESS)** | Relational database |
 | **BCrypt.Net** | Password hashing |
-| **JWT Bearer Authentication** | Token-based auth (planned) |
+| **JWT Bearer Authentication** | Token-based auth with role-based access control |
 | **Swagger / Swashbuckle** | API documentation & testing UI |
 | **C# Records** | Immutable DTOs |
 
@@ -141,8 +141,8 @@ All endpoints are prefixed with `/api/v1/`
 
 | Method | Endpoint | Description | Status |
 |---|---|---|---|
-| `POST` | `/register` | Register a new user | 🔜 Planned |
-| `POST` | `/login` | Login and get JWT token | 🔜 Planned |
+| `POST` | `/register` | Register a new user | ✅ Implemented |
+| `POST` | `/login` | Login and get JWT token | ✅ Implemented |
 
 ### 👤 Users (`/api/v1/users`)
 
@@ -370,18 +370,44 @@ The database comes pre-seeded with:
 
 ---
 
-## 🔒 Authentication (Current & Planned)
+## 🔒 Authentication & Authorization
 
-### Current State
-- Auth endpoints (`/register`, `/login`) are **stubbed** — they return `501 Not Implemented`
-- User identification uses a **temporary header-based approach**: `X-User-Id` and `X-Restaurant-Id` headers
-- JWT packages (`Microsoft.AspNetCore.Authentication.JwtBearer`) and settings are already configured
+### JWT Bearer Authentication
+The API uses **JSON Web Token (JWT)** based authentication. Users register and login to receive a token, which must be included in the `Authorization` header for protected endpoints.
 
-### Planned Implementation
-- **BCrypt** password hashing (package already installed)
-- **JWT Bearer token** authentication
-- **Role-based authorization** (User, Admin, Restaurant roles)
-- Replace header-based user identification with JWT claims
+### How It Works
+1. **Register** → `POST /api/v1/auth/register` — Creates a user account with BCrypt-hashed password
+2. **Login** → `POST /api/v1/auth/login` — Validates credentials and returns a JWT token
+3. **Use Token** → Include the token in subsequent requests as: `Authorization: Bearer <token>`
+
+### JWT Claims
+The token contains the following claims extracted from the user:
+| Claim | Description |
+|---|---|
+| `NameIdentifier` | User ID (used to identify the current user) |
+| `Email` | User's email address |
+| `Name` | User's full name |
+| `Role` | User's role (`User`, `Admin`, `Restaurant`) |
+
+### Role-Based Access Control
+
+| Role | Permissions |
+|---|---|
+| **User** | Browse restaurants/menus, manage cart, place/cancel orders, manage profile & addresses |
+| **Admin** | All user permissions + manage users, restaurants, categories, view all orders |
+| **Restaurant** | Manage own menu items, update order status |
+
+### Endpoint Protection Summary
+
+| Controller | Public (No Auth) | Authenticated | Admin Only | Restaurant/Admin |
+|---|---|---|---|---|
+| Auth | Register, Login | — | — | — |
+| Users | — | Profile, Addresses | Get All, Delete | — |
+| Restaurants | Get All, Get By ID | — | Create, Delete | Update |
+| Categories | Get All, Get By ID | — | Create, Update, Delete | — |
+| Menu Items | All GET endpoints | — | — | Create, Update, Toggle, Delete |
+| Cart | — | All endpoints | — | — |
+| Orders | — | Place, Get Own, Cancel | Get All | Get Restaurant Orders, Update Status |
 
 ---
 
@@ -389,25 +415,38 @@ The database comes pre-seeded with:
 
 ### Using Swagger UI
 1. Run the project and navigate to `/swagger`
-2. Use the Swagger UI to send requests to all endpoints
-3. For endpoints requiring a user context, add the `X-User-Id` header (e.g., `2` for John Doe)
-4. For restaurant-specific endpoints, add `X-Restaurant-Id` header (e.g., `1` for Spice Garden)
+2. **Register** or **Login** via the auth endpoints to get a JWT token
+3. Click the **"Authorize" 🔒** button in Swagger UI and paste the token
+4. All subsequent requests will include the token automatically
 
 ### Sample Request Flow
 
 ```
-1. GET  /api/v1/restaurants              → Browse all restaurants
-2. GET  /api/v1/menuitems/restaurant/1   → View Spice Garden's menu
-3. POST /api/v1/cart/add                 → Add "Masala Dosa" to cart
-       Headers: X-User-Id: 2
+1. POST /api/v1/auth/register           → Register a new account
+       Body: {
+         "firstName": "Jane",
+         "lastName": "Doe",
+         "email": "jane@example.com",
+         "password": "MyPass123!",
+         "confirmPassword": "MyPass123!",
+         "phoneNumber": "9876543210"
+       }
+       Response: { "token": "eyJhbG...", "userId": 3, ... }
+
+2. POST /api/v1/auth/login              → Login (or use the seed user)
+       Body: { "email": "john@example.com", "password": "Password123" }
+       Response: { "token": "eyJhbG...", ... }
+
+3. 🔒 Authorize in Swagger UI with the token from step 1 or 2
+
+4. GET  /api/v1/restaurants              → Browse all restaurants (public)
+5. GET  /api/v1/menuitems/restaurant/1   → View Spice Garden's menu (public)
+6. POST /api/v1/cart/add                 → Add "Masala Dosa" to cart
        Body: { "menuItemId": 1, "quantity": 2 }
-4. GET  /api/v1/cart                     → View cart contents
-       Headers: X-User-Id: 2
-5. POST /api/v1/orders                  → Place the order
-       Headers: X-User-Id: 2
+7. GET  /api/v1/cart                     → View cart contents
+8. POST /api/v1/orders                  → Place the order
        Body: { "addressId": 1, "paymentMethod": "UPI" }
-6. GET  /api/v1/orders                  → View order history
-       Headers: X-User-Id: 2
+9. GET  /api/v1/orders                  → View order history
 ```
 
 ---
@@ -428,8 +467,8 @@ The database comes pre-seeded with:
 
 ## 🚀 Future Enhancements
 
-- [ ] Complete JWT authentication & authorization
-- [ ] Role-based access control (Admin, Restaurant Owner, Customer)
+- [x] Complete JWT authentication & authorization
+- [x] Role-based access control (Admin, Restaurant Owner, Customer)
 - [ ] Payment gateway integration
 - [ ] Real-time order tracking with SignalR
 - [ ] Image upload for menu items & restaurants
@@ -446,4 +485,4 @@ The database comes pre-seeded with:
 
 ---
 
-> **Note:** This project is currently in active development. Authentication endpoints are stubbed and will be implemented in future iterations.
+> **Note:** This project is currently in active development. JWT authentication and role-based authorization are fully implemented.
